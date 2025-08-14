@@ -19,7 +19,7 @@ router = APIRouter()  # Router for grouping endpoints
 
 # === Enable CORS for frontend and microservices communication ===
 # Read allowed origins from environment variable (comma-separated)
-ALLOWED_ORIGINS_GATEWAY = os.environ.get("ALLOWED_ORIGINS_GATEWAY", "http://localhost:5180").split(",")
+ALLOWED_ORIGINS_GATEWAY = os.environ.get("ALLOWED_ORIGINS_GATEWAY", "https://localhost:5180").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in ALLOWED_ORIGINS_GATEWAY],
@@ -30,15 +30,15 @@ app.add_middleware(
 
 # === Service URLs and OAuth2 credentials from environment variables ===
 # These allow the gateway to communicate with other services and perform OAuth2 flows
-BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://localhost:8001")  # Backend service base URL
-AUTH_BASE_URL = os.environ.get("AUTH_BASE_URL", "http://localhost:8003")  # Auth service base URL
-AUTH_BASE_URL_PUBLIC = os.environ.get("AUTH_BASE_URL_PUBLIC", "http://localhost:8003")  # Public Auth service URL
-LANDING_URL = os.environ.get("LANDING_BASE_URL", "http://localhost:8088")  # Landing page URL
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5180")  # Frontend redirect URL (business)
-MARKETPLACE_URL = os.environ.get("MARKETPLACE_URL", "http://localhost:8200")  # Marketplace redirect URL (customer)
+BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "https://localhost:8001")  # Backend service base URL
+AUTH_BASE_URL = os.environ.get("AUTH_BASE_URL", "https://localhost:8003")  # Auth service base URL
+AUTH_BASE_URL_PUBLIC = os.environ.get("AUTH_BASE_URL_PUBLIC", "https://localhost:8003")  # Public Auth service URL
+LANDING_URL = os.environ.get("LANDING_BASE_URL", "https://localhost:8088")  # Landing page URL
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://localhost:5180")  # Frontend redirect URL (business)
+MARKETPLACE_URL = os.environ.get("MARKETPLACE_URL", "https://localhost:8200")  # Marketplace redirect URL (customer)
 OAUTH_CLIENT_ID = os.environ.get("OAUTH_CLIENT_ID", "")  # OAuth2 client ID
 OAUTH_CLIENT_SECRET = os.environ.get("OAUTH_CLIENT_SECRET", "")  # OAuth2 client secret
-OAUTH_REDIRECT_URI = os.environ.get("OAUTH_REDIRECT_URI", "http://localhost:8300/oauth/callback")  # Registered redirect URI
+OAUTH_REDIRECT_URI = os.environ.get("OAUTH_REDIRECT_URI", "https://localhost:8300/oauth/callback")  # Registered redirect URI
 
 # === Redis configuration for caching and session storage ===
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")  # Redis connection URL
@@ -100,7 +100,10 @@ async def oauth_callback(request: Request):
         "code_verifier": code_verifier,
     }
     print("[API Gateway] - Token request data:", data)
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(
+        cert=("/certs/apigateway-cert.pem", "/certs/apigateway-key.pem"),
+        verify="/certs/ca-cert.pem"
+    ) as client:
         resp = await client.post(token_url, data=data)
         if resp.status_code != 200:
             return JSONResponse(status_code=400, content={"detail": "Token exchange failed", "error": resp.text})
@@ -130,7 +133,10 @@ async def get_me(request: Request):
     
     userinfo_url = f"{AUTH_BASE_URL}/o/userinfo/"
     headers = {"Authorization": f"Bearer {session_token}"}
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(
+        cert=("/certs/apigateway-cert.pem", "/certs/apigateway-key.pem"),
+        verify="/certs/ca-cert.pem"
+    ) as client:
         resp = await client.get(userinfo_url, headers=headers)
         if resp.status_code != 200:
             return JSONResponse(status_code=401, content={"detail": "Invalid or expired session"})
@@ -169,7 +175,10 @@ async def login_user(request: Request):
         return JSONResponse(status_code=400, content={"detail": "Username and password are required"})
 
     # Forward the request to the Auth service (Django)
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(
+        cert=("/certs/apigateway-cert.pem", "/certs/apigateway-key.pem"),
+        verify="/certs/ca-cert.pem"
+    ) as client:
         auth_resp = await client.post(f"{AUTH_BASE_URL}/users/login/", json={"username": username, "password": password})
         if auth_resp.status_code != 200:
             try:
@@ -196,7 +205,10 @@ async def register_user(request: Request):
         raise HTTPException(status_code=400, detail="Invalid user_type. Must be 'business' or 'customer'.")
 
     # Step 1: Register user on the Auth Server
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(
+        cert=("/certs/apigateway-cert.pem", "/certs/apigateway-key.pem"),
+        verify="/certs/ca-cert.pem"
+    ) as client:
         auth_resp = await client.post(f"{AUTH_BASE_URL}/users/register/", json=data)
         if auth_resp.status_code != 201:
             # Forward error from Auth Server to the frontend
