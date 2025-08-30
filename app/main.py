@@ -107,10 +107,7 @@ async def oauth_callback(request: Request):
         "code_verifier": code_verifier,
     }
     print("[API Gateway] - Token request data:", data)
-    async with httpx.AsyncClient(
-        cert=(APIGATEWAY_CERT_PATH, APIGATEWAY_KEY_PATH),
-        verify=APIGATEWAY_CA_PATH
-    ) as client:
+    async with httpx.AsyncClient() as client:
         resp = await client.post(token_url, data=data)
         if resp.status_code != 200:
             return JSONResponse(status_code=400, content={"detail": "Token exchange failed", "error": resp.text})
@@ -140,10 +137,7 @@ async def get_me(request: Request):
     
     userinfo_url = f"{AUTH_BASE_URL}/o/userinfo/"
     headers = {"Authorization": f"Bearer {session_token}"}
-    async with httpx.AsyncClient(
-        cert=(APIGATEWAY_CERT_PATH, APIGATEWAY_KEY_PATH),
-        verify=APIGATEWAY_CA_PATH
-    ) as client:
+    async with httpx.AsyncClient() as client:
         resp = await client.get(userinfo_url, headers=headers)
         if resp.status_code != 200:
             return JSONResponse(status_code=401, content={"detail": "Invalid or expired session"})
@@ -182,10 +176,7 @@ async def login_user(request: Request):
         return JSONResponse(status_code=400, content={"detail": "Username and password are required"})
 
     # Forward the request to the Auth service (Django)
-    async with httpx.AsyncClient(
-        cert=(APIGATEWAY_CERT_PATH, APIGATEWAY_KEY_PATH),
-        verify=APIGATEWAY_CA_PATH
-    ) as client:
+    async with httpx.AsyncClient() as client:
         auth_resp = await client.post(f"{AUTH_BASE_URL}/users/login/", json={"username": username, "password": password})
         if auth_resp.status_code != 200:
             try:
@@ -212,10 +203,7 @@ async def register_user(request: Request):
         raise HTTPException(status_code=400, detail="Invalid user_type. Must be 'business' or 'customer'.")
 
     # Step 1: Register user on the Auth Server
-    async with httpx.AsyncClient(
-        cert=(APIGATEWAY_CERT_PATH, APIGATEWAY_KEY_PATH),
-        verify=APIGATEWAY_CA_PATH
-    ) as client:
+    async with httpx.AsyncClient() as client:
         auth_resp = await client.post(f"{AUTH_BASE_URL}/users/register/", json=data)
         if auth_resp.status_code != 201:
             # Forward error from Auth Server to the frontend
