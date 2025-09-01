@@ -57,14 +57,13 @@ async def oauth_login(request: Request):
     """
     Start the OIDC SSO flow: generate PKCE, save code_verifier and state in Redis, redirect to /o/authorize/.
     """
-    next_url = request.query_params.get("next") or FRONTEND_URL
     state = secrets.token_urlsafe(16)
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b'=').decode()
     # Save in Redis (10 min)
-    redis_client.setex(f"sso:state:{state}", 600, f"{code_verifier}|{next_url}")
+    redis_client.setex(f"sso:state:{state}", 600, f"{code_verifier}|{LANDING_URL}")
     # Build authorization URL
     params = {
         "client_id": OAUTH_CLIENT_ID,
@@ -120,7 +119,7 @@ async def oauth_callback(request: Request):
         key="session_token",
         value=tokens["access_token"],
         httponly=True,
-        secure=True,  # only on HTTPS in prod
+        secure=False,  # only on HTTPS in prod
         samesite="lax",  # or "strict"
         max_age=3600,    # duration in seconds
         path="/"
@@ -142,6 +141,20 @@ async def get_me(request: Request):
         if resp.status_code != 200:
             return JSONResponse(status_code=401, content={"detail": "Invalid or expired session"})
         user_info = resp.json()
+    # Retrieve user_type from backend
+    user_type = None
+    try:
+        # Use email to query the backend
+        backend_url = f"{BACKEND_BASE_URL}/api/users/?email={user_info.get('email')}"
+        async with httpx.AsyncClient() as client:
+            backend_resp = await client.get(backend_url)
+            if backend_resp.status_code == 200:
+                results = backend_resp.json()
+                if isinstance(results, list) and results and 'user_type' in results[0]:
+                    user_type = results[0]['user_type']
+    except Exception as ex:
+        print("[API Gateway] - Error retrieving user_type:", ex)
+    user_info['user_type'] = user_type
     return JSONResponse(status_code=200, content=user_info)
 
 # Logout endpoint
@@ -151,17 +164,15 @@ async def logout(request: Request):
     OIDC logout: clear local session/cookie and return the landing page URL.
     """
     # Remove the session_token cookie (this is the actual session cookie)
-    response = JSONResponse({"detail": "Logged out"})
+    landing_url = f"{LANDING_URL}/"
+    response = JSONResponse({"logout_url": landing_url})
     response.delete_cookie(
         "session_token",
         path="/",
-        secure=True,
+        secure=False,  # only on HTTPS in prod
         samesite="lax"
     )
-
-    # Return the landing page URL for the frontend to redirect the user
-    landing_join_url = f"{LANDING_URL}/join"
-    return JSONResponse({"logout_url": landing_join_url})
+    return response
 
 # === Login endpoint ===
 @router.post("/api/users/login/")
@@ -217,7 +228,8 @@ async def register_user(request: Request):
         # Step 2: Register user on the Backend (flat payload)
         backend_data = {
             "username": data["username"],
-            "email": data["email"]
+            "email": data["email"],
+            "user_type": data["user_type"]
         }
         # Choose the correct backend endpoint based on user_type
         backend_endpoint = "/api/users/register/business/" if user_type == "business" else "/api/users/register/customer/"
